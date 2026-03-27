@@ -11,6 +11,8 @@ import 'package:whisper_ggml/src/whisper_audio_convert.dart';
 import 'models/requests/transcribe_request.dart';
 import 'models/requests/transcribe_request_dto.dart';
 import 'models/requests/version_request.dart';
+import 'models/requests/dispose_request.dart';
+import 'models/requests/init_request.dart';
 import 'models/responses/whisper_transcribe_response.dart';
 import 'models/responses/whisper_version_response.dart';
 import 'models/whisper_dto.dart';
@@ -58,6 +60,28 @@ class Whisper {
       malloc.free(data);
       return result;
     });
+  }
+
+  /// Initialize whisper model
+  Future<void> init(String modelPath) async {
+    final Map<String, dynamic> result = await _request(
+      whisperRequest: InitRequest(model: modelPath),
+    );
+
+    if (result['@type'] == 'error') {
+      throw Exception(result['message']);
+    }
+  }
+
+  /// Dispose whisper model
+  Future<void> dispose(String modelPath) async {
+    final Map<String, dynamic> result = await _request(
+      whisperRequest: DisposeRequest(model: modelPath),
+    );
+
+    if (result['@type'] == 'error') {
+      throw Exception(result['message']);
+    }
   }
 
   /// Transcribe audio file to text

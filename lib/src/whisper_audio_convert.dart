@@ -23,6 +23,19 @@ class WhisperAudioConvert {
 
   /// convert [audioInput] to wav file
   Future<File?> convert() async {
+    // Check if input is already a compatible WAV to avoid redundant conversion
+    if (audioInput.path.endsWith('.wav')) {
+      // For simplicity, we trust the extension here, 
+      // but in a more robust implementation we might check the header.
+      // If it exists and is .wav, we can try to skip.
+      // However, Whisper specifically needs 16kHz mono PCM.
+      // So it's safer to run FFmpeg unless we are SURE.
+      // A compromise: if the output file already exists and is the same as input, return it.
+      if (audioInput.path == audioOutput.path) {
+        return audioInput;
+      }
+    }
+
     final FFmpegSession session = await FFmpegKit.execute(
       [
         '-y',

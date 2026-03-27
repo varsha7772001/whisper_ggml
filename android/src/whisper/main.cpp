@@ -12,8 +12,13 @@
 #include <iostream>
 #include <stdio.h>
 #include "json/json.hpp"
+#include <map>
+#include <mutex>
 
 using json = nlohmann::json;
+
+static std::map<std::string, struct whisper_context *> g_contexts;
+static std::mutex g_mutex;
 
 char *jsonToChar(json jsonData) noexcept
 {
@@ -103,7 +108,29 @@ json transcribe(json jsonBody) noexcept
     }
 
     // whisper init
-    struct whisper_context *ctx = whisper_init_from_file(params.model.c_str());
+    struct whisper_context *ctx = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_contexts.find(params.model) != g_contexts.end())
+        {
+            ctx = g_contexts[params.model];
+        }
+        else
+        {
+            ctx = whisper_init_from_file(params.model.c_str());
+            if (ctx)
+            {
+                g_contexts[params.model] = ctx;
+            }
+        }
+    }
+
+    if (!ctx)
+    {
+        jsonResult["@type"] = "error";
+        jsonResult["message"] = "failed to initialize whisper context";
+        return jsonResult;
+    }
     std::string text_result = "";
     const auto fname_inp = params.audio;
     // WAV input
@@ -237,7 +264,56 @@ json transcribe(json jsonBody) noexcept
     }
     jsonResult["text"] = text_result;
     
-    whisper_free(ctx);
+    // Do not free ctx here if we want to cache it
+    // whisper_free(ctx); 
+    return jsonResult;
+}
+
+json init(json jsonBody) noexcept
+{
+    std::string model = jsonBody["model"];
+    json jsonResult;
+    jsonResult["@type"] = "init";
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_contexts.find(model) != g_contexts.end())
+    {
+        jsonResult["message"] = "model already initialized";
+        return jsonResult;
+    }
+
+    struct whisper_context *ctx = whisper_init_from_file(model.c_str());
+    if (ctx)
+    {
+        g_contexts[model] = ctx;
+        jsonResult["message"] = "model initialized successfully";
+    }
+    else
+    {
+        jsonResult["@type"] = "error";
+        jsonResult["message"] = "failed to initialize whisper context";
+    }
+    return jsonResult;
+}
+
+json dispose(json jsonBody) noexcept
+{
+    std::string model = jsonBody["model"];
+    json jsonResult;
+    jsonResult["@type"] = "dispose";
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    auto it = g_contexts.find(model);
+    if (it != g_contexts.end())
+    {
+        whisper_free(it->second);
+        g_contexts.erase(it);
+        jsonResult["message"] = "model disposed successfully";
+    }
+    else
+    {
+        jsonResult["message"] = "model not found in cache";
+    }
     return jsonResult;
 }
 extern "C"
@@ -250,6 +326,14 @@ extern "C"
             json jsonBody = json::parse(body);
             json jsonResult;
 
+            if (jsonBody["@type"] == "init")
+            {
+                return jsonToChar(init(jsonBody));
+            }
+            if (jsonBody["@type"] == "dispose")
+            {
+                return jsonToChar(dispose(jsonBody));
+            }
             if (jsonBody["@type"] == "getTextFromWavFile")
             {
                 try

@@ -10,9 +10,24 @@ class WhisperController {
   String _modelPath = '';
   String? _dir;
 
+  bool _isInitialized = false;
+  late Whisper _whisper;
+
   Future<void> initModel(WhisperModel model) async {
     _dir ??= await getModelDir();
     _modelPath = '$_dir/ggml-${model.modelName}.bin';
+    _whisper = Whisper(model: model);
+    if (!_isInitialized) {
+      await _whisper.init(_modelPath);
+      _isInitialized = true;
+    }
+  }
+
+  Future<void> dispose() async {
+    if (_isInitialized) {
+      await _whisper.dispose(_modelPath);
+      _isInitialized = false;
+    }
   }
 
   Future<TranscribeResult?> transcribe({
@@ -23,14 +38,14 @@ class WhisperController {
   }) async {
     await initModel(model);
 
-    final Whisper whisper = Whisper(model: model);
     final DateTime start = DateTime.now();
     const bool translate = false;
     const bool withSegments = false;
     const bool splitWords = false;
 
     try {
-      final WhisperTranscribeResponse transcription = await whisper.transcribe(
+      final WhisperTranscribeResponse transcription =
+          await _whisper.transcribe(
         transcribeRequest: TranscribeRequest(
           audio: audioPath,
           language: lang,
